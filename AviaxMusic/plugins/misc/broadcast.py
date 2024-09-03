@@ -7,145 +7,87 @@ from pyrogram.errors import FloodWait
 from AviaxMusic import app
 from AviaxMusic.misc import SUDOERS
 from AviaxMusic.utils.database import (
+    get_active_chats,
+    get_authuser_names,
     get_client,
-    get_served_chats_clone,
-    get_served_users_clone,
+    get_served_chats,
+    get_served_users,
 )
-from BrandrdXMusic.utils.decorators.language import language
-from BrandrdXMusic.utils.formatters import alpha_to_int
+from AviaxMusic.utils.decorators.language import language
+from AviaxMusic.utils.formatters import alpha_to_int
 from config import adminlist
-import random
-from typing import Dict, List, Union
 
-from BrandrdXMusic import userbot
-from BrandrdXMusic.core.mongo import mongodb, pymongodb
-
-authdb = mongodb.adminauth
-authuserdb = mongodb.authuser
-autoenddb = mongodb.autoend
-assdb = mongodb.assistants
-blacklist_chatdb = mongodb.blacklistChat
-blockeddb = mongodb.blockedusers
-chatsdbc = mongodb.chatsc
-channeldb = mongodb.cplaymode
-clonebotdb = pymongodb.clonebotdb
-countdb = mongodb.upcount
-gbansdb = mongodb.gban
-langdb = mongodb.language
-onoffdb = mongodb.onoffper
-playmodedb = mongodb.playmode
-playtypedb = mongodb.playtypedb
-skipdb = mongodb.skipmode
-sudoersdb = mongodb.sudoers
-usersdbc = mongodb.tgusersdbc
-privatedb = mongodb.privatechats
-suggdb = mongodb.suggestion
-cleandb = mongodb.cleanmode
-queriesdb = mongodb.queries
-userdb = mongodb.userstats
-videodb = mongodb.vipvideocalls
-
-# Shifting to memory [mongo sucks often]
-active = []
-activevideo = []
-assistantdict = {}
-autoend = {}
-count = {}
-channelconnect = {}
-langm = {}
-loop = {}
-maintenance = []
-nonadmin = {}
-pause = {}
-playmode = {}
-playtype = {}
-skipmode = {}
-privatechats = {}
-cleanmode = []
-suggestion = {}
-mute = {}
-audio = {}
-video = {}
+IS_BROADCASTING = True
 
 
-async def get_active_chats_clone() -> list:
-    return active
-
-
-async def is_active_chat_clone(chat_id: int) -> bool:
-    if chat_id not in active:
-        return False
-    else:
-        return True
-
-
-async def add_active_chat_clone(chat_id: int):
-    if chat_id not in active:
-        active.append(chat_id)
-
-
-async def remove_active_chat_clone(chat_id: int):
-    if chat_id in active:
-        active.remove(chat_id)
-
-
-async def _get_authusers(chat_id: int) -> Dict[str, int]:
-    _notes = await authuserdb.find_one({"chat_id": chat_id})
-    if not _notes:
-        return {}
-    return _notes["notes"]
-
-
-async def get_authuser_names_clone(chat_id: int) -> List[str]:
-    _notes = []
-    for note in await _get_authusers(chat_id):
-        _notes.append(note)
-    return _notes
-
-
-async def get_authuser_clone(chat_id: int, name: str) -> Union[bool, dict]:
-    name = name
-    _notes = await _get_authusers(chat_id)
-    if name in _notes:
-        return _notes[name]
-    else:
-        return False
-
-
-async def save_authuser_clone(chat_id: int, name: str, note: dict):
-    name = name
-    _notes = await _get_authusers(chat_id)
-    _notes[name] = note
-
-    await authuserdb.update_one(
-        {"chat_id": chat_id}, {"$set": {"notes": _notes}}, upsert=True
-    )
-
-
-async def delete_authuser_clone(chat_id: int, name: str) -> bool:
-    notesd = await _get_authusers(chat_id)
-    name = name
-    if name in notesd:
-        del notesd[name]
-        await authuserdb.update_one(
-            {"chat_id": chat_id},
-            {"$set": {"notes": notesd}},
-            upsert=True,
-        )
-        return True
-    return False
-
-
-IS_BROADCASTING = False
-
-
-@Client.on_message(filters.command(["broadcast", "gcast"]) & SUDOERS)
+@app.on_message(filters.command("broadcast") & SUDOERS)
 @language
 async def braodcast_message(client, message, _):
     global IS_BROADCASTING
+
+    if "-wfchat" in message.text or "-wfuser" in message.text:
+        if not message.reply_to_message or not (message.reply_to_message.photo or message.reply_to_message.text):
+            return await message.reply_text("Please reply to a text or image message for broadcasting.")
+
+        # Extract data from the replied message
+        if message.reply_to_message.photo:
+            content_type = 'photo'
+            file_id = message.reply_to_message.photo.file_id
+        else:
+            content_type = 'text'
+            text_content = message.reply_to_message.text
+            
+        caption = message.reply_to_message.caption
+        reply_markup = message.reply_to_message.reply_markup if hasattr(message.reply_to_message, 'reply_markup') else None
+
+        IS_BROADCASTING = True
+        await message.reply_text(_["broad_1"])
+
+        if "-wfchat" in message.text or "-wfuser" in message.text:
+            # Broadcasting to chats
+            sent_chats = 0
+            chats = [int(chat["chat_id"]) for chat in await get_served_chats()]
+            for i in chats:
+                try:
+                    if content_type == 'photo':
+                        await app.send_photo(chat_id=i, photo=file_id, caption=caption, reply_markup=reply_markup)
+                    else:
+                        await app.send_message(chat_id=i, text=text_content, reply_markup=reply_markup)
+                    sent_chats += 1
+                    await asyncio.sleep(0.2)
+                except FloodWait as fw:
+                    await asyncio.sleep(fw.x)
+                except:
+                    continue
+            await message.reply_text(f"Broadcast to chats completed! Sent to {sent_chats} chats.")
+
+        if "-wfuser" in message.text:
+            # Broadcasting to users
+            sent_users = 0
+            users = [int(user["user_id"]) for user in await get_served_users()]
+            for i in users:
+                try:
+                    if content_type == 'photo':
+                        await app.send_photo(chat_id=i, photo=file_id, caption=caption, reply_markup=reply_markup)
+                    else:
+                        await app.send_message(chat_id=i, text=text_content, reply_markup=reply_markup)
+                    sent_users += 1
+                    await asyncio.sleep(0.2)
+                except FloodWait as fw:
+                    await asyncio.sleep(fw.x)
+                except:
+                    continue
+            await message.reply_text(f"Broadcast to users completed! Sent to {sent_users} users.")
+
+        IS_BROADCASTING = True
+        return
+
+    
     if message.reply_to_message:
         x = message.reply_to_message.id
         y = message.chat.id
+        reply_markup = message.reply_to_message.reply_markup if message.reply_to_message.reply_markup else None
+        content = None
     else:
         if len(message.command) < 2:
             return await message.reply_text(_["broad_2"])
@@ -170,15 +112,15 @@ async def braodcast_message(client, message, _):
         sent = 0
         pin = 0
         chats = []
-        schats = await get_served_chats_clone()
+        schats = await get_served_chats()
         for chat in schats:
             chats.append(int(chat["chat_id"]))
         for i in chats:
             try:
                 m = (
-                    await client.forward_messages(i, y, x)
+                    await app.copy_message(chat_id=i, from_chat_id=y, message_id=x, reply_markup=reply_markup)
                     if message.reply_to_message
-                    else await client.send_message(i, text=query)
+                    else await app.send_message(i, text=query)
                 )
                 if "-pin" in message.text:
                     try:
@@ -209,15 +151,15 @@ async def braodcast_message(client, message, _):
     if "-user" in message.text:
         susr = 0
         served_users = []
-        susers = await get_served_users_clone()
+        susers = await get_served_users()
         for user in susers:
             served_users.append(int(user["user_id"]))
         for i in served_users:
             try:
                 m = (
-                    await client.forward_messages(i, y, x)
+                    await app.copy_message(chat_id=i, from_chat_id=y, message_id=x, reply_markup=reply_markup)
                     if message.reply_to_message
-                    else await client.send_message(i, text=query)
+                    else await app.send_message(i, text=query)
                 )
                 susr += 1
                 await asyncio.sleep(0.2)
@@ -236,17 +178,17 @@ async def braodcast_message(client, message, _):
     if "-assistant" in message.text:
         aw = await message.reply_text(_["broad_5"])
         text = _["broad_6"]
-        from BrandrdXMusic.core.userbot import assistants
+        from AviaxMusic.core.userbot import assistants
 
         for num in assistants:
             sent = 0
-            clients = await get_client(num)
-            async for dialog in clients.get_dialogs():
+            client = await get_client(num)
+            async for dialog in client.get_dialogs():
                 try:
-                    (
-                        await clients.forward_messages(dialog.chat.id, y, x)
-                        if message.reply_to_message
-                        else await clients.send_message(dialog.chat.id, text=query)
+                    await client.forward_messages(
+                        dialog.chat.id, y, x
+                    ) if message.reply_to_message else await client.send_message(
+                        dialog.chat.id, text=query
                     )
                     sent += 1
                     await asyncio.sleep(3)
@@ -262,22 +204,22 @@ async def braodcast_message(client, message, _):
             await aw.edit_text(text)
         except:
             pass
-    IS_BROADCASTING = False
+    IS_BROADCASTING = True
 
 
 async def auto_clean():
     while not await asyncio.sleep(10):
         try:
-            served_chats = await get_active_chats_clone()
+            served_chats = await get_active_chats()
             for chat_id in served_chats:
                 if chat_id not in adminlist:
                     adminlist[chat_id] = []
-                    async for user in client.get_chat_members(
+                    async for user in app.get_chat_members(
                         chat_id, filter=ChatMembersFilter.ADMINISTRATORS
                     ):
                         if user.privileges.can_manage_video_chats:
                             adminlist[chat_id].append(user.user.id)
-                    authusers = await get_authuser_names_clone(chat_id)
+                    authusers = await get_authuser_names(chat_id)
                     for user in authusers:
                         user_id = await alpha_to_int(user)
                         adminlist[chat_id].append(user_id)
